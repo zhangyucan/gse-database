@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GEO Query Prototype</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="app">
+    <section class="hero">
+      <h1>GSE · GSM 条件查询原型</h1>
+      <p>基于现有 <code>extraction_batch_result.csv</code> 生成，可按 GSE/GSM/关键词检索并查看样本明细。</p>
+    </section>
+
+    <section class="stats" id="stats"></section>
+
+    <section class="panel query-panel">
+      <div class="controls">
+        <label>GSE
+          <input id="gseInput" placeholder="例如 GSE250283" />
+        </label>
+        <label>GSM
+          <input id="gsmInput" placeholder="例如 GSM7976778" />
+        </label>
+        <label>关键词
+          <input id="qInput" placeholder="例如 DMM00002 / CAD / treatment" />
+        </label>
+        <label>结果数
+          <input id="limitInput" type="number" min="1" max="500" value="100" />
+        </label>
+      </div>
+      <div class="actions">
+        <button id="searchBtn">查询</button>
+        <button id="resetBtn" class="ghost">重置</button>
+      </div>
+    </section>
+
+    <section class="layout">
+      <div class="panel table-panel">
+        <h2>样本结果</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>GSE</th>
+                <th>GSM</th>
+                <th>样本名</th>
+                <th>条件</th>
+                <th>基因型</th>
+                <th>字段数</th>
+                <th>解析质量</th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel detail-panel">
+        <h2>样本详情</h2>
+        <div id="detailMeta" class="meta"></div>
+        <h3>Gene/Value 结构视图（当前基于已有条件字段映射）</h3>
+        <div class="table-wrap small">
+          <table>
+            <thead>
+              <tr>
+                <th>Gene(字段名)</th>
+                <th>Value</th>
+                <th>来源</th>
+              </tr>
+            </thead>
+            <tbody id="featureBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

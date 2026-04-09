@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+.geo
+.DS_Store
+geo_samples.db
