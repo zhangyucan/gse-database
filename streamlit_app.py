@@ -77,6 +77,20 @@ def run() -> None:
         st.info("上面是总览大表。要查 gene-value，请在左侧输入 GSE。")
         return
 
+    st.subheader(f"{gse} 基本情况表（GSM 对应）")
+    gse_rows = app.get_gse_basic_table(conn, gse)
+    if gse_rows:
+        gse_df = pd.DataFrame(gse_rows)
+        st.dataframe(
+            gse_df[["gse_id", "gsm_id", "sample_name", "condition"]],
+            use_container_width=True,
+            height=320,
+            hide_index=True,
+        )
+    else:
+        st.warning(f"{gse} 在样本元信息中没有记录。")
+        return
+
     if do_search:
         with st.spinner(f"正在准备 {gse} 的表达矩阵..."):
             prep = app.ensure_expression_loaded(conn, gse)

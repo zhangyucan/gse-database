@@ -382,6 +382,37 @@ def get_sample_detail(conn: sqlite3.Connection, gsm_id: str) -> dict:
     }
 
 
+# ---------- gse overview ----------
+def get_gse_basic_table(conn: sqlite3.Connection, gse_id: str) -> list:
+    gse_id = (gse_id or "").strip().upper()
+    if not gse_id:
+        return []
+
+    rows = conn.execute(
+        """
+        SELECT gse_id, gsm_id, sample_title,
+               COALESCE(treatment,''), COALESCE(genotype,''), COALESCE(raw_characteristics,'')
+        FROM samples
+        WHERE gse_id = ?
+        ORDER BY gsm_id
+        """,
+        (gse_id,),
+    ).fetchall()
+
+    result = []
+    for r in rows:
+        condition = " | ".join([x for x in [r[3], r[4], r[5]] if x]).strip(" |")
+        result.append(
+            {
+                "gse_id": r[0],
+                "gsm_id": r[1],
+                "sample_name": r[2],
+                "condition": condition,
+            }
+        )
+    return result
+
+
 # ---------- expression matrix ingest ----------
 def get_gse_samples(conn: sqlite3.Connection, gse_id: str) -> list:
     rows = conn.execute(
