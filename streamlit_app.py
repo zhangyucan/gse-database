@@ -30,7 +30,7 @@ def ensure_database() -> None:
 def run() -> None:
     st.set_page_config(page_title="GSE Gene-Value Query", layout="wide")
     st.title("GSE Gene-Value 查询")
-    st.caption("给定 GSE 后，可按 GSM / 样本名 / 条件 / Gene 查询表达值")
+    st.caption("先看全量样本大表，再按 GSE / GSM / 样本名 / 条件 / Gene 查询表达值")
 
     ensure_database()
     conn = get_conn()
@@ -43,6 +43,8 @@ def run() -> None:
 
     with st.sidebar:
         st.header("筛选")
+        overview_q = st.text_input("总览关键词", placeholder="先在大表里筛一下").strip()
+        overview_limit = st.number_input("总览行数", min_value=100, max_value=5000, value=1000, step=100)
         gse = st.text_input("GSE（必填）", placeholder="GSE250283").strip().upper()
         gsm = st.text_input("GSM", placeholder="GSM7976778").strip().upper()
         sample = st.text_input("样本名", placeholder="例如 WT_Log 或 DMM00002").strip()
@@ -51,8 +53,28 @@ def run() -> None:
         limit = st.number_input("结果上限", min_value=10, max_value=5000, value=500, step=50)
         do_search = st.button("查询 Gene-Value", type="primary")
 
+    st.subheader("样本总览大表")
+    overview_rows = app.search_samples(
+        conn,
+        {"q": overview_q, "limit": str(overview_limit)},
+    )
+    if overview_rows:
+        odf = pd.DataFrame(overview_rows)
+        show_cols = [
+            "gse_id",
+            "gsm_id",
+            "sample_title",
+            "treatment",
+            "genotype",
+            "raw_characteristics",
+            "feature_count",
+        ]
+        st.dataframe(odf[show_cols], use_container_width=True, height=420, hide_index=True)
+    else:
+        st.info("总览没有匹配结果")
+
     if not gse:
-        st.info("请先输入 GSE")
+        st.info("上面是总览大表。要查 gene-value，请在左侧输入 GSE。")
         return
 
     if do_search:
