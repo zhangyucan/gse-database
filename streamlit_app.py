@@ -75,7 +75,7 @@ def run() -> None:
         st.info("输入 GSE 后，将用该 GSE 基本情况表替代总览大表。")
         return
 
-    st.subheader(f"{gse} 基本情况表（GSM 对应）")
+    st.subheader(f"{gse} 基本情况表")
     gse_rows = app.get_gse_basic_table(conn, gse)
     if gse_rows:
         gse_df = pd.DataFrame(gse_rows)
