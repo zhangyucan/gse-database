@@ -46,12 +46,11 @@ def run() -> None:
         overview_q = st.text_input("总览关键词", placeholder="先在大表里筛一下").strip()
         overview_limit = st.number_input("总览行数", min_value=100, max_value=5000, value=1000, step=100)
         gse = st.text_input("GSE（必填）", placeholder="GSE250283").strip().upper()
-        gsm = st.text_input("GSM", placeholder="GSM7976778").strip().upper()
+        gsm = st.text_input("GSM（可选，通常在下方表里锁定）", placeholder="GSM7976778").strip().upper()
         sample = st.text_input("样本名", placeholder="例如 WT_Log 或 DMM00002").strip()
         condition = st.text_input("条件关键词", placeholder="例如 CAD / NaCl / heat shock").strip()
-        gene = st.text_input("Gene", placeholder="例如 AAC1").strip()
-        limit = st.number_input("结果上限", min_value=10, max_value=5000, value=500, step=50)
-        do_search = st.button("查询 Gene-Value", type="primary")
+        limit = st.number_input("结果上限", min_value=100, max_value=50000, value=10000, step=100)
+        do_search = st.button("加载/刷新 Gene-Value", type="primary")
 
     st.subheader("样本总览大表")
     overview_rows = app.search_samples(
@@ -87,6 +86,12 @@ def run() -> None:
             height=320,
             hide_index=True,
         )
+
+        options = [f"{x['gsm_id']} | {x['sample_name']}" for x in gse_rows]
+        picked = st.selectbox("锁定一个 GSM（推荐）", options=options, index=0)
+        picked_gsm = picked.split("|", 1)[0].strip().upper()
+        if not gsm:
+            gsm = picked_gsm
     else:
         st.warning(f"{gse} 在样本元信息中没有记录。")
         return
@@ -106,28 +111,44 @@ def run() -> None:
         "gsm": gsm,
         "sample": sample,
         "condition": condition,
-        "gene": gene,
+        "gene": "",
         "limit": str(limit),
     }
 
     rows = app.search_expression(conn, params)
 
-    st.subheader(f"Gene-Value 结果 ({len(rows)})")
+    if gsm:
+        sample_name = ""
+        for x in gse_rows:
+            if x["gsm_id"] == gsm:
+                sample_name = x["sample_name"]
+                break
+        st.subheader(f"{gsm}+{sample_name}(样本名) Gene-Value 表")
+    else:
+        st.subheader(f"Gene-Value 结果 ({len(rows)})")
+
     if not rows:
         st.warning("当前条件下没有结果。请先点一次“查询 Gene-Value”进行该 GSE 的矩阵加载。")
         return
 
     df = pd.DataFrame(rows)
-    show_cols = [
-        "gse_id",
-        "gsm_id",
-        "sample_label",
-        "sample_title",
-        "condition_text",
-        "gene",
-        "value",
-    ]
-    st.dataframe(df[show_cols], use_container_width=True, hide_index=True)
+    if gsm:
+        gv = df[["gene", "value"]].dropna().copy()
+        gv = gv.sort_values("gene")
+        # 锁定 GSM 后，按 gene 去重，保留一个值用于样本级展示
+        gv = gv.drop_duplicates(subset=["gene"], keep="first")
+        st.dataframe(gv, use_container_width=True, height=520, hide_index=True)
+    else:
+        show_cols = [
+            "gse_id",
+            "gsm_id",
+            "sample_label",
+            "sample_title",
+            "condition_text",
+            "gene",
+            "value",
+        ]
+        st.dataframe(df[show_cols], use_container_width=True, hide_index=True)
 
 
 if __name__ == "__main__":
