@@ -43,14 +43,39 @@ def run() -> None:
 
     with st.sidebar:
         st.header("筛选")
-        gse = st.text_input("GSE（必填）", placeholder="GSE250283").strip().upper()
-        gsm = st.text_input("GSM（可选）", placeholder="GSM7976778").strip().upper()
+        gse = st.text_input("GSE", placeholder="GSE250283").strip().upper()
+        gsm = st.text_input("GSM", placeholder="GSM7976778").strip().upper()
         sample = st.text_input("样本名", placeholder="AR13_1 或 DMM00002").strip()
         condition = st.text_input("条件关键词", placeholder="CAD / NaCl / heat shock").strip()
-        do_search = st.button("加载/刷新 Gene-Value", type="primary")
+        do_search = st.button("查询", type="primary")
+
+    st.subheader("样本总览大表")
+    overview_limit = st.number_input("总览行数", min_value=100, max_value=5000, value=1000, step=100)
+    overview_params = {"limit": str(overview_limit)}
+    if gse:
+        overview_params["gse"] = gse
+    if gsm:
+        overview_params["gsm"] = gsm
+    if sample:
+        overview_params["q"] = sample
+    overview_rows = app.search_samples(conn, overview_params)
+    if overview_rows:
+        odf = pd.DataFrame(overview_rows)
+        show_cols = [
+            "gse_id",
+            "gsm_id",
+            "sample_title",
+            "treatment",
+            "genotype",
+            "raw_characteristics",
+            "feature_count",
+        ]
+        st.dataframe(odf[show_cols], use_container_width=True, height=420, hide_index=True)
+    else:
+        st.info("总览没有匹配结果")
 
     if not gse:
-        st.info("请输入 GSE。")
+        st.info("已展示总览大表。输入 GSE 后可继续看该 GSE 的 GSM 对应和 Gene-Value 表。")
         return
 
     st.subheader(f"{gse} 基本情况表（GSM 对应）")
