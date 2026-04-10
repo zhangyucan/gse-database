@@ -17,6 +17,7 @@ STATIC_DIR = BASE_DIR / "static"
 CSV_PATH = BASE_DIR / "data" / "extraction_batch_result.csv"
 DB_PATH = BASE_DIR / "geo_samples.db"
 SS_BULK_DIR = BASE_DIR.parent / "SS_Bulk"
+DEMO_EXPR_DIR = BASE_DIR / "data" / "expression"
 
 EXPR_EXTENSIONS = {".xlsx", ".xls", ".csv", ".tsv", ".txt", ".xlsx.gz", ".xls.gz", ".csv.gz", ".tsv.gz", ".txt.gz"}
 EXPR_HINTS = ("fpkm", "rpkm", "tpm", "count", "counts", "expression", "normalized", "matrix")
@@ -83,7 +84,9 @@ def resolve_ss_bulk_dir() -> Path:
         p = Path(env_path).expanduser().resolve()
         if p.exists():
             return p
-    return SS_BULK_DIR
+    if SS_BULK_DIR.exists():
+        return SS_BULK_DIR
+    return DEMO_EXPR_DIR
 
 
 # ---------- schema ----------
@@ -479,12 +482,18 @@ def read_tabular(path: Path) -> pd.DataFrame:
 
     if lower.endswith(".gz"):
         try:
-            return pd.read_csv(path, sep="\t", compression="gzip")
+            df = pd.read_csv(path, sep="\t", compression="gzip")
+            if df.shape[1] <= 1:
+                df = pd.read_csv(path, sep=",", compression="gzip")
+            return df
         except Exception:
             return pd.read_csv(path, sep=",", compression="gzip")
 
     try:
-        return pd.read_csv(path, sep="\t")
+        df = pd.read_csv(path, sep="\t")
+        if df.shape[1] <= 1:
+            df = pd.read_csv(path, sep=",")
+        return df
     except Exception:
         return pd.read_csv(path, sep=",")
 
