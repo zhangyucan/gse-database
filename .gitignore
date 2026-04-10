@@ -3,3 +3,5 @@ __pycache__/
 .geo
 .DS_Store
 geo_samples.db
+data/*.db
+data/*.db-journal

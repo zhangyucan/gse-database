@@ -1,22 +1,38 @@
 # GSE Gene-Value Query (Streamlit)
 
-## 目标
+## 你当前遇到的报错
 
-给定一个 `GSE`，可以用 `GSM / 样本名 / 条件 / Gene` 检索对应的 gene-value 信息。
+`no expression-like files found in /mount/src/SS_Bulk`
 
-## 数据来源
+原因是 Streamlit Cloud 没有你本地的 `/data1/zyc/lu2026/SS_Bulk` 目录。
 
-1. 样本元信息：`data/extraction_batch_result.csv`
-2. 表达矩阵：`/data1/zyc/lu2026/SS_Bulk` 下与 GSE 对应的表格文件（如 `xlsx/csv/tsv/txt`）
+## 已修复
 
-## 已实现
+1. 查询会优先读取全局表达 SQL（`data/ss_bulk_expression.db`）。
+2. 如果全局 SQL 不存在，再尝试扫描 `SS_Bulk`。
+3. 扫描失败时会回退到项目内 `data/expression` demo 文件。
 
-1. 不再在前端展示 `parse_quality` 和 `status`。
-2. 自动修复样本名乱码（如 `cth1Îcth2Î` -> `cth1Δcth2Δ`）。
-3. 新增表达矩阵加载与检索：
-   - 首次查询某个 GSE 时，自动扫描 `SS_Bulk` 中该 GSE 的表达矩阵文件。
-   - 解析第一列 gene 和后续样本列，入库到 `expression_values`。
-   - 支持按 `GSM/样本名/条件/Gene` 查询 gene-value。
+## 把 SS_Bulk 全量做成一个 SQL
+
+在本机执行：
+
+```bash
+cd /data1/zyc/lu2026/web_prototype
+python3 build_ss_bulk_sql.py \
+  --ss-bulk /data1/zyc/lu2026/SS_Bulk \
+  --out /data1/zyc/lu2026/web_prototype/data/ss_bulk_expression.db \
+  --rebuild
+```
+
+说明：
+- 这个 SQL 会把所有识别为表达矩阵的表格统一写入 `expression_raw`。
+- 表结构字段：`gse_id, sample_label, gene, value, source_file`。
+
+## 查询逻辑（与你需求一致）
+
+1. 输入 `GSE`。
+2. 先看该 `GSE` 的基本情况表（GSM + 样本名 + 条件）。
+3. 锁定 `GSM` 后，直接展示该样本的整张 `Gene-Value` 表。
 
 ## 本地运行
 
@@ -25,10 +41,3 @@ cd /data1/zyc/lu2026/web_prototype
 python3 -m pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
-
-## Streamlit Cloud 部署
-
-- Repository: `zhangyucan/gse-database`
-- Branch: `main`
-- Main file path: `streamlit_app.py`
-

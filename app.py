@@ -18,6 +18,7 @@ CSV_PATH = BASE_DIR / "data" / "extraction_batch_result.csv"
 DB_PATH = BASE_DIR / "geo_samples.db"
 SS_BULK_DIR = BASE_DIR.parent / "SS_Bulk"
 DEMO_EXPR_DIR = BASE_DIR / "data" / "expression"
+GLOBAL_EXPR_DB = BASE_DIR / "data" / "ss_bulk_expression.db"
 
 EXPR_EXTENSIONS = {".xlsx", ".xls", ".csv", ".tsv", ".txt", ".xlsx.gz", ".xls.gz", ".csv.gz", ".tsv.gz", ".txt.gz"}
 EXPR_HINTS = ("fpkm", "rpkm", "tpm", "count", "counts", "expression", "normalized", "matrix")
@@ -87,6 +88,13 @@ def resolve_ss_bulk_dir() -> Path:
     if SS_BULK_DIR.exists():
         return SS_BULK_DIR
     return DEMO_EXPR_DIR
+
+
+def resolve_global_expression_db() -> Path:
+    env_path = os.getenv("GLOBAL_EXPR_DB", "").strip()
+    if env_path:
+        return Path(env_path).expanduser().resolve()
+    return GLOBAL_EXPR_DB
 
 
 # ---------- schema ----------
@@ -443,11 +451,9 @@ def get_gse_samples(conn: sqlite3.Connection, gse_id: str) -> list:
     return out
 
 
-def list_candidate_expression_files(gse_id: str) -> list:
-    root = resolve_ss_bulk_dir()
+def list_candidate_expression_files_from_root(gse_id: str, root: Path) -> list:
     if not root.exists():
         return []
-
     gse_upper = gse_id.upper()
     candidates = []
     for p in root.rglob("*"):
@@ -473,6 +479,20 @@ def list_candidate_expression_files(gse_id: str) -> list:
 
     candidates.sort(key=lambda x: (-x[0], x[1]))
     return [Path(x[1]) for x in candidates[:20]]
+
+
+def list_candidate_expression_files(gse_id: str) -> list:
+    primary = resolve_ss_bulk_dir()
+    files = list_candidate_expression_files_from_root(gse_id, primary)
+    if files:
+        return files
+
+    # cloud fallback: bundled demo expression files in repo
+    if primary != DEMO_EXPR_DIR:
+        files = list_candidate_expression_files_from_root(gse_id, DEMO_EXPR_DIR)
+        if files:
+            return files
+    return []
 
 
 def read_tabular(path: Path) -> pd.DataFrame:
@@ -536,6 +556,66 @@ def map_column_to_sample(col_name: str, gse_samples: list) -> tuple:
     return "", col_name, ""
 
 
+def load_expression_from_global_db(conn: sqlite3.Connection, gse_id: str, gse_samples: list) -> dict:
+    db_path = resolve_global_expression_db()
+    if not db_path.exists():
+        return {"ok": False, "message": f"global expression db not found: {db_path}"}
+
+    gconn = sqlite3.connect(db_path)
+    try:
+        exists = gconn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='expression_raw'"
+        ).fetchone()
+        if not exists:
+            return {"ok": False, "message": "global expression db has no table expression_raw"}
+
+        rows = gconn.execute(
+            """
+            SELECT gse_id, sample_label, gene, value, source_file
+            FROM expression_raw
+            WHERE gse_id = ?
+            """,
+            (gse_id,),
+        ).fetchall()
+        if not rows:
+            return {"ok": False, "message": f"{gse_id} not found in global expression db"}
+
+        sample_map = {}
+        for s in gse_samples:
+            sample_map[s["sample_title"]] = (s["gsm_id"], s["sample_title"], s["condition_text"])
+            sample_map[s["sample_title_norm"]] = (s["gsm_id"], s["sample_title"], s["condition_text"])
+
+        inserts = []
+        for gse, sample_label, gene, value, source_file in rows:
+            gsm_id, sample_title, condition_text = map_column_to_sample(sample_label, gse_samples)
+            inserts.append(
+                (
+                    gse,
+                    gsm_id,
+                    sample_label,
+                    sample_title,
+                    condition_text,
+                    gene,
+                    float(value),
+                    source_file,
+                )
+            )
+
+        conn.executemany(
+            """
+            INSERT INTO expression_values (
+                gse_id, gsm_id, sample_label, sample_title, condition_text,
+                gene, value, source_file
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            inserts,
+        )
+        conn.commit()
+        return {"ok": True, "message": "loaded from global expression db", "row_count": len(inserts)}
+    finally:
+        gconn.close()
+
+
 def ensure_expression_loaded(conn: sqlite3.Connection, gse_id: str) -> dict:
     gse_id = (gse_id or "").strip().upper()
     if not re.fullmatch(r"GSE\d+", gse_id):
@@ -556,9 +636,30 @@ def ensure_expression_loaded(conn: sqlite3.Connection, gse_id: str) -> dict:
     if not gse_samples:
         return {"ok": False, "message": f"{gse_id} not found in sample metadata"}
 
+    # 1) prefer prebuilt global SQL from all SS_Bulk expression tables
+    global_loaded = load_expression_from_global_db(conn, gse_id, gse_samples)
+    if global_loaded.get("ok"):
+        row_count = int(global_loaded.get("row_count", 0))
+        conn.execute(
+            "INSERT OR REPLACE INTO expression_load_log (gse_id, loaded_at, file_count, row_count, notes) VALUES (?, ?, ?, ?, ?)",
+            (gse_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 0, row_count, "global_db"),
+        )
+        conn.commit()
+        return {
+            "ok": True,
+            "message": "global_db",
+            "gse_id": gse_id,
+            "file_count": 0,
+            "row_count": row_count,
+        }
+
+    # 2) fallback to raw file scan
     files = list_candidate_expression_files(gse_id)
     if not files:
-        return {"ok": False, "message": f"no expression-like files found in {resolve_ss_bulk_dir()}"}
+        return {
+            "ok": False,
+            "message": f"no expression-like files found in {resolve_ss_bulk_dir()} or {DEMO_EXPR_DIR}",
+        }
 
     total_rows = 0
     used_files = 0
