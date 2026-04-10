@@ -49,33 +49,30 @@ def run() -> None:
         condition = st.text_input("条件关键词", placeholder="CAD / NaCl / heat shock").strip()
         do_search = st.button("查询", type="primary")
 
-    st.subheader("样本总览大表")
-    overview_limit = st.number_input("总览行数", min_value=100, max_value=5000, value=1000, step=100)
-    overview_params = {"limit": str(overview_limit)}
-    if gse:
-        overview_params["gse"] = gse
-    if gsm:
-        overview_params["gsm"] = gsm
-    if sample:
-        overview_params["q"] = sample
-    overview_rows = app.search_samples(conn, overview_params)
-    if overview_rows:
-        odf = pd.DataFrame(overview_rows)
-        show_cols = [
-            "gse_id",
-            "gsm_id",
-            "sample_title",
-            "treatment",
-            "genotype",
-            "raw_characteristics",
-            "feature_count",
-        ]
-        st.dataframe(odf[show_cols], use_container_width=True, height=420, hide_index=True)
-    else:
-        st.info("总览没有匹配结果")
-
     if not gse:
-        st.info("已展示总览大表。输入 GSE 后可继续看该 GSE 的 GSM 对应和 Gene-Value 表。")
+        st.subheader("样本总览大表")
+        overview_limit = st.number_input("总览行数", min_value=100, max_value=5000, value=1000, step=100)
+        overview_params = {"limit": str(overview_limit)}
+        if gsm:
+            overview_params["gsm"] = gsm
+        if sample:
+            overview_params["q"] = sample
+        overview_rows = app.search_samples(conn, overview_params)
+        if overview_rows:
+            odf = pd.DataFrame(overview_rows)
+            show_cols = [
+                "gse_id",
+                "gsm_id",
+                "sample_title",
+                "treatment",
+                "genotype",
+                "raw_characteristics",
+                "feature_count",
+            ]
+            st.dataframe(odf[show_cols], use_container_width=True, height=420, hide_index=True)
+        else:
+            st.info("总览没有匹配结果")
+        st.info("输入 GSE 后，将用该 GSE 基本情况表替代总览大表。")
         return
 
     st.subheader(f"{gse} 基本情况表（GSM 对应）")
