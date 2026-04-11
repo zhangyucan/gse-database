@@ -1,43 +1,47 @@
-# GSE Gene-Value Query (Streamlit)
+# GSE Gene-Value Query (Demo + Full)
 
-## 你当前遇到的报错
+## Demo 版（推荐给同学试用）
 
-`no expression-like files found in /mount/src/SS_Bulk`
+仓库默认是轻量 demo 数据，只含 3 个 GSE：
+- `GSE237235`
+- `GSE67149`
+- `GSE110818`
 
-原因是 Streamlit Cloud 没有你本地的 `/data1/zyc/lu2026/SS_Bulk` 目录。
-
-## 已修复
-
-1. 查询会优先读取全局表达 SQL（`data/ss_bulk_expression.db`）。
-2. 如果全局 SQL 不存在，再尝试扫描 `SS_Bulk`。
-3. 扫描失败时会回退到项目内 `data/expression` demo 文件。
-
-## 把 SS_Bulk 全量做成一个 SQL
-
-在本机执行：
-
-```bash
-cd /data1/zyc/lu2026/web_prototype
-python3 build_ss_bulk_sql.py \
-  --ss-bulk /data1/zyc/lu2026/SS_Bulk \
-  --out /data1/zyc/lu2026/web_prototype/data/ss_bulk_expression.db \
-  --rebuild
-```
-
-说明：
-- 这个 SQL 会把所有识别为表达矩阵的表格统一写入 `expression_raw`。
-- 表结构字段：`gse_id, sample_label, gene, value, source_file`。
-
-## 查询逻辑（与你需求一致）
-
-1. 输入 `GSE`。
-2. 先看该 `GSE` 的基本情况表（GSM + 样本名 + 条件）。
-3. 锁定 `GSM` 后，直接展示该样本的整张 `Gene-Value` 表。
-
-## 本地运行
+直接运行：
 
 ```bash
 cd /data1/zyc/lu2026/web_prototype
 python3 -m pip install -r requirements.txt
-streamlit run streamlit_app.py
+python3 -m streamlit run streamlit_app.py --server.port 8501 --server.address 0.0.0.0
 ```
+
+浏览器打开：`http://127.0.0.1:8501`
+
+## Demo 验证示例
+
+- `GSE67149` + `GSM1640265`
+- `GSE237235` + `GSM7597583`
+
+## 全量模式（你本机）
+
+如果你要接本地全量数据（`/data1/zyc/lu2026/SS_Bulk`），可运行：
+
+```bash
+cd /data1/zyc/lu2026/web_prototype
+python3 rebuild_all.py --global-rebuild
+```
+
+这会重建：
+- 映射表（GSE/GSM/条件）
+- 浏览库 `geo_samples.db`
+- 全量表达库 `data/ss_bulk_expression.db`
+
+## 环境变量（可选）
+
+- `GEO_CSV_PATH`：覆盖样本元信息 CSV
+- `SS_BULK_DIR`：覆盖表达文件根目录
+- `GLOBAL_EXPR_DB`：覆盖全局表达库路径
+- `MASTER_MAPPING_CSV`：覆盖主映射表
+- `LABEL_MAPPING_CSV`：覆盖标签映射表
+- `MAPPING_SUMMARY_CSV`：覆盖映射状态汇总
+

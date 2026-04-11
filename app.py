@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sqlite3
+from functools import lru_cache
 from datetime import datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -19,6 +20,12 @@ DB_PATH = BASE_DIR / "geo_samples.db"
 SS_BULK_DIR = BASE_DIR.parent / "SS_Bulk"
 DEMO_EXPR_DIR = BASE_DIR / "data" / "expression"
 GLOBAL_EXPR_DB = BASE_DIR / "data" / "ss_bulk_expression.db"
+MASTER_MAPPING_CSV = BASE_DIR.parent / "SS_Bulk" / "gse_gsm_condition_master_mapping.csv"
+LABEL_MAPPING_CSV = BASE_DIR.parent / "SS_Bulk" / "gse_expression_label_mapping.csv"
+MAPPING_SUMMARY_CSV = BASE_DIR.parent / "SS_Bulk" / "gse_mapping_alignment_summary.csv"
+DEMO_MASTER_MAPPING_CSV = BASE_DIR / "data" / "mapping" / "gse_gsm_condition_master_mapping_demo.csv"
+DEMO_LABEL_MAPPING_CSV = BASE_DIR / "data" / "mapping" / "gse_expression_label_mapping_demo.csv"
+DEMO_MAPPING_SUMMARY_CSV = BASE_DIR / "data" / "mapping" / "gse_mapping_alignment_summary_demo.csv"
 
 EXPR_EXTENSIONS = {".xlsx", ".xls", ".csv", ".tsv", ".txt", ".xlsx.gz", ".xls.gz", ".csv.gz", ".tsv.gz", ".txt.gz"}
 EXPR_HINTS = ("fpkm", "rpkm", "tpm", "count", "counts", "expression", "normalized", "matrix")
@@ -62,6 +69,29 @@ def norm_text(text: str) -> str:
     return s
 
 
+def clean_text(text: str) -> str:
+    s = fix_mojibake("" if text is None else str(text)).strip()
+    if s.lower() in {"nan", "none", "null"}:
+        return ""
+    return s
+
+
+def text_tokens(text: str) -> list:
+    s = clean_text(text).lower()
+    return [x for x in re.split(r"[^a-z0-9]+", s) if x]
+
+
+def expand_tokens(tokens: list) -> set:
+    t = set(tokens)
+    if "wt" in t:
+        t.update({"wild", "type"})
+    if "q" in t:
+        t.update({"q", "quiescence"})
+    if "ds" in t:
+        t.update({"ds", "diauxic"})
+    return t
+
+
 def resolve_csv_path() -> Path:
     env_path = os.getenv("GEO_CSV_PATH", "").strip()
     if env_path:
@@ -97,10 +127,126 @@ def resolve_global_expression_db() -> Path:
     return GLOBAL_EXPR_DB
 
 
+def resolve_master_mapping_csv() -> Path:
+    env_path = os.getenv("MASTER_MAPPING_CSV", "").strip()
+    if env_path:
+        return Path(env_path).expanduser().resolve()
+    if MASTER_MAPPING_CSV.exists():
+        return MASTER_MAPPING_CSV
+    return DEMO_MASTER_MAPPING_CSV
+
+
+def resolve_label_mapping_csv() -> Path:
+    env_path = os.getenv("LABEL_MAPPING_CSV", "").strip()
+    if env_path:
+        return Path(env_path).expanduser().resolve()
+    if LABEL_MAPPING_CSV.exists():
+        return LABEL_MAPPING_CSV
+    return DEMO_LABEL_MAPPING_CSV
+
+
+def resolve_mapping_summary_csv() -> Path:
+    env_path = os.getenv("MAPPING_SUMMARY_CSV", "").strip()
+    if env_path:
+        return Path(env_path).expanduser().resolve()
+    if MAPPING_SUMMARY_CSV.exists():
+        return MAPPING_SUMMARY_CSV
+    return DEMO_MAPPING_SUMMARY_CSV
+
+
+@lru_cache(maxsize=1)
+def load_master_mapping_rows() -> list:
+    path = resolve_master_mapping_csv()
+    if not path.exists():
+        return []
+    try:
+        df = pd.read_csv(path, dtype=str).fillna("")
+    except Exception:
+        return []
+
+    needed = {"gse_id", "gsm_id", "sample_title", "condition_text"}
+    if not needed.issubset(set(df.columns)):
+        return []
+
+    rows = []
+    for _, r in df.iterrows():
+        gse_id = clean_text(r.get("gse_id", "")).upper()
+        gsm_id = clean_text(r.get("gsm_id", "")).upper()
+        if not gse_id or not gsm_id:
+            continue
+        sample_title = clean_text(r.get("sample_title", ""))
+        condition_text = clean_text(r.get("condition_text", ""))
+        rows.append(
+            {
+                "gse_id": gse_id,
+                "gsm_id": gsm_id,
+                "sample_title": sample_title,
+                "sample_title_norm": norm_text(sample_title),
+                "condition_text": condition_text,
+            }
+        )
+    return rows
+
+
+@lru_cache(maxsize=1)
+def load_label_mapping_dict() -> dict:
+    path = resolve_label_mapping_csv()
+    if not path.exists():
+        return {}
+    try:
+        df = pd.read_csv(path, dtype=str).fillna("")
+    except Exception:
+        return {}
+
+    needed = {"gse_id", "sample_label", "match_status", "matched_gsm_ids"}
+    if not needed.issubset(set(df.columns)):
+        return {}
+
+    out = {}
+    for _, r in df.iterrows():
+        status = clean_text(r.get("match_status", ""))
+        if not status.startswith("MATCH_"):
+            continue
+        gse_id = clean_text(r.get("gse_id", "")).upper()
+        label = clean_text(r.get("sample_label", ""))
+        if not gse_id or not label:
+            continue
+        key = (gse_id, norm_text(label))
+        gsms = [x.strip().upper() for x in clean_text(r.get("matched_gsm_ids", "")).split(";") if x.strip()]
+        if not gsms:
+            continue
+        old = out.get(key, [])
+        out[key] = sorted(set(old + gsms))
+    return out
+
+
 # ---------- schema ----------
 def create_tables(conn: sqlite3.Connection) -> None:
     conn.executescript(
         """
+        CREATE TABLE IF NOT EXISTS mapping_status (
+            gse_id TEXT PRIMARY KEY,
+            mapping_status TEXT,
+            label_count INTEGER,
+            sample_like_count INTEGER,
+            mapped_any INTEGER,
+            unmatched INTEGER
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_mapping_status ON mapping_status(mapping_status);
+
+        CREATE TABLE IF NOT EXISTS mapping_samples (
+            gse_id TEXT,
+            gsm_id TEXT,
+            sample_title TEXT,
+            condition_text TEXT,
+            mapping_source TEXT,
+            PRIMARY KEY (gse_id, gsm_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_mapping_gse ON mapping_samples(gse_id);
+        CREATE INDEX IF NOT EXISTS idx_mapping_gsm ON mapping_samples(gsm_id);
+
         CREATE TABLE IF NOT EXISTS samples (
             gse_id TEXT,
             gsm_id TEXT,
@@ -230,6 +376,8 @@ def import_csv_to_db(csv_path: Path, db_path: Path) -> None:
     conn = sqlite3.connect(db_path)
     conn.executescript(
         """
+        DROP TABLE IF EXISTS mapping_status;
+        DROP TABLE IF EXISTS mapping_samples;
         DROP TABLE IF EXISTS sample_features;
         DROP TABLE IF EXISTS samples;
         DROP TABLE IF EXISTS expression_values;
@@ -295,7 +443,98 @@ def import_csv_to_db(csv_path: Path, db_path: Path) -> None:
         feature_rows,
     )
 
+    # Build a DB-native master mapping table for all GSE/GSM pairs.
+    merged = {}
+    for r in load_master_mapping_rows():
+        key = (r["gse_id"], r["gsm_id"])
+        merged[key] = {
+            "gse_id": r["gse_id"],
+            "gsm_id": r["gsm_id"],
+            "sample_title": clean_text(r.get("sample_title", "")),
+            "condition_text": clean_text(r.get("condition_text", "")),
+            "mapping_source": "MASTER_MAPPING",
+        }
+
+    local_rows = conn.execute(
+        """
+        SELECT gse_id, gsm_id, sample_title,
+               COALESCE(treatment,''), COALESCE(genotype,''), COALESCE(raw_characteristics,'')
+        FROM samples
+        WHERE gse_id <> '' AND gsm_id <> ''
+        """
+    ).fetchall()
+    for gse_id, gsm_id, sample_title, treatment, genotype, raw in local_rows:
+        key = (gse_id, gsm_id)
+        cond_local = " | ".join([x for x in [treatment, genotype, raw] if clean_text(x)]).strip(" |")
+        cur = merged.get(
+            key,
+            {
+                "gse_id": gse_id,
+                "gsm_id": gsm_id,
+                "sample_title": "",
+                "condition_text": "",
+                "mapping_source": "LOCAL_META",
+            },
+        )
+        if clean_text(sample_title):
+            cur["sample_title"] = clean_text(sample_title)
+        if clean_text(cond_local):
+            cur["condition_text"] = clean_text(cond_local)
+        if cur.get("mapping_source") != "MASTER_MAPPING":
+            cur["mapping_source"] = "LOCAL_META"
+        merged[key] = cur
+
+    mapping_rows = [
+        (
+            x["gse_id"],
+            x["gsm_id"],
+            x["sample_title"],
+            x["condition_text"],
+            x["mapping_source"],
+        )
+        for x in merged.values()
+        if x["gse_id"] and x["gsm_id"]
+    ]
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO mapping_samples (gse_id, gsm_id, sample_title, condition_text, mapping_source)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        mapping_rows,
+    )
+
+    # optional summary table for UI status badge
+    summary_path = resolve_mapping_summary_csv()
+    if summary_path.exists():
+        try:
+            sm = pd.read_csv(summary_path, dtype=str).fillna("")
+            if {"gse_id", "mapping_status"}.issubset(set(sm.columns)):
+                status_rows = []
+                for _, r in sm.iterrows():
+                    status_rows.append(
+                        (
+                            clean_text(r.get("gse_id", "")).upper(),
+                            clean_text(r.get("mapping_status", "")),
+                            int(clean_text(r.get("label_count", "0")) or 0),
+                            int(clean_text(r.get("sample_like_count", "0")) or 0),
+                            int(clean_text(r.get("mapped_any", "0")) or 0),
+                            int(clean_text(r.get("unmatched", "0")) or 0),
+                        )
+                    )
+                conn.executemany(
+                    """
+                    INSERT OR REPLACE INTO mapping_status (
+                        gse_id, mapping_status, label_count, sample_like_count, mapped_any, unmatched
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    status_rows,
+                )
+        except Exception:
+            pass
+
     conn.commit()
+    # Reclaim disk space after repeated rebuilds; otherwise SQLite file can bloat.
+    conn.execute("VACUUM")
     conn.close()
 
 
@@ -309,20 +548,20 @@ def search_samples(conn: sqlite3.Connection, params: dict) -> list:
 
     where, args = [], []
     if gse:
-        where.append("s.gse_id = ?")
+        where.append("m.gse_id = ?")
         args.append(gse)
     if gsm:
-        where.append("s.gsm_id = ?")
+        where.append("m.gsm_id = ?")
         args.append(gsm)
     if q:
         where.append(
             "(" \
-            "LOWER(s.sample_title) LIKE ? OR " \
-            "LOWER(s.raw_characteristics) LIKE ? OR " \
-            "LOWER(s.treatment) LIKE ? OR " \
-            "LOWER(s.genotype) LIKE ? OR " \
-            "LOWER(s.gse_id) LIKE ? OR " \
-            "LOWER(s.gsm_id) LIKE ?" \
+            "LOWER(COALESCE(NULLIF(s.sample_title,''), m.sample_title)) LIKE ? OR " \
+            "LOWER(COALESCE(s.raw_characteristics, m.condition_text, '')) LIKE ? OR " \
+            "LOWER(COALESCE(s.treatment, '')) LIKE ? OR " \
+            "LOWER(COALESCE(s.genotype, '')) LIKE ? OR " \
+            "LOWER(m.gse_id) LIKE ? OR " \
+            "LOWER(m.gsm_id) LIKE ?" \
             ")"
         )
         like = f"%{q}%"
@@ -330,13 +569,20 @@ def search_samples(conn: sqlite3.Connection, params: dict) -> list:
 
     where_sql = " AND ".join(where) if where else "1=1"
     sql = f"""
-        SELECT s.gse_id, s.gsm_id, s.sample_title, s.treatment, s.genotype,
-               s.raw_characteristics, COUNT(f.feature_key) AS feature_count
-        FROM samples s
-        LEFT JOIN sample_features f ON f.gse_id = s.gse_id AND f.gsm_id = s.gsm_id
+        SELECT m.gse_id, m.gsm_id,
+               COALESCE(NULLIF(s.sample_title,''), m.sample_title) AS sample_title,
+               COALESCE(s.treatment, '') AS treatment,
+               COALESCE(s.genotype, '') AS genotype,
+               COALESCE(NULLIF(s.raw_characteristics,''), m.condition_text, '') AS raw_characteristics,
+               COUNT(f.feature_key) AS feature_count,
+               COALESCE(ms.mapping_status, 'UNKNOWN') AS mapping_status
+        FROM mapping_samples m
+        LEFT JOIN samples s ON s.gse_id = m.gse_id AND s.gsm_id = m.gsm_id
+        LEFT JOIN sample_features f ON f.gse_id = m.gse_id AND f.gsm_id = m.gsm_id
+        LEFT JOIN mapping_status ms ON ms.gse_id = m.gse_id
         WHERE {where_sql}
-        GROUP BY s.gse_id, s.gsm_id
-        ORDER BY s.gse_id, s.gsm_id
+        GROUP BY m.gse_id, m.gsm_id
+        ORDER BY m.gse_id, m.gsm_id
         LIMIT ?
     """
     rows = conn.execute(sql, (*args, limit)).fetchall()
@@ -349,6 +595,7 @@ def search_samples(conn: sqlite3.Connection, params: dict) -> list:
             "genotype": r[4],
             "raw_characteristics": r[5],
             "feature_count": r[6],
+            "mapping_status": r[7],
         }
         for r in rows
     ]
@@ -399,33 +646,79 @@ def get_gse_basic_table(conn: sqlite3.Connection, gse_id: str) -> list:
     if not gse_id:
         return []
 
-    rows = conn.execute(
+    samples = get_gse_samples(conn, gse_id)
+    return [
+        {
+            "gse_id": x["gse_id"],
+            "gsm_id": x["gsm_id"],
+            "sample_name": x["sample_title"],
+            "condition": x["condition_text"],
+        }
+        for x in samples
+    ]
+
+
+def get_gse_mapping_status(conn: sqlite3.Connection, gse_id: str) -> dict:
+    gse_id = (gse_id or "").strip().upper()
+    if not gse_id:
+        return {"gse_id": "", "mapping_status": "UNKNOWN"}
+    row = conn.execute(
         """
-        SELECT gse_id, gsm_id, sample_title,
-               COALESCE(treatment,''), COALESCE(genotype,''), COALESCE(raw_characteristics,'')
-        FROM samples
+        SELECT gse_id, mapping_status, label_count, sample_like_count, mapped_any, unmatched
+        FROM mapping_status
         WHERE gse_id = ?
-        ORDER BY gsm_id
         """,
         (gse_id,),
-    ).fetchall()
-
-    result = []
-    for r in rows:
-        condition = " | ".join([x for x in [r[3], r[4], r[5]] if x]).strip(" |")
-        result.append(
-            {
-                "gse_id": r[0],
-                "gsm_id": r[1],
-                "sample_name": r[2],
-                "condition": condition,
-            }
-        )
-    return result
+    ).fetchone()
+    if not row:
+        return {"gse_id": gse_id, "mapping_status": "UNKNOWN"}
+    return {
+        "gse_id": row[0],
+        "mapping_status": row[1],
+        "label_count": row[2],
+        "sample_like_count": row[3],
+        "mapped_any": row[4],
+        "unmatched": row[5],
+    }
 
 
 # ---------- expression matrix ingest ----------
 def get_gse_samples(conn: sqlite3.Connection, gse_id: str) -> list:
+    gse_id = (gse_id or "").strip().upper()
+    if not gse_id:
+        return []
+
+    rows = conn.execute(
+        """
+        SELECT m.gse_id, m.gsm_id,
+               COALESCE(NULLIF(s.sample_title,''), m.sample_title) AS sample_title,
+               COALESCE(s.treatment,''), COALESCE(s.genotype,''), COALESCE(s.raw_characteristics,''),
+               COALESCE(m.condition_text,'')
+        FROM mapping_samples m
+        LEFT JOIN samples s ON s.gse_id = m.gse_id AND s.gsm_id = m.gsm_id
+        WHERE m.gse_id = ?
+        ORDER BY m.gsm_id
+        """,
+        (gse_id,),
+    ).fetchall()
+    if rows:
+        out = []
+        for r in rows:
+            cond_local = " | ".join([x for x in [r[3], r[4], r[5]] if clean_text(x)]).strip(" |")
+            cond = cond_local if cond_local else clean_text(r[6])
+            sample_title = clean_text(r[2])
+            out.append(
+                {
+                    "gse_id": r[0],
+                    "gsm_id": r[1],
+                    "sample_title": sample_title,
+                    "sample_title_norm": norm_text(sample_title),
+                    "condition_text": cond,
+                }
+            )
+        return out
+
+    # fallback: if mapping_samples table is unavailable, use old local+csv merge path
     rows = conn.execute(
         """
         SELECT gse_id, gsm_id, sample_title,
@@ -436,18 +729,39 @@ def get_gse_samples(conn: sqlite3.Connection, gse_id: str) -> list:
         """,
         (gse_id,),
     ).fetchall()
-    out = []
+    local_samples = []
     for r in rows:
         cond = " | ".join([x for x in [r[3], r[4], r[5]] if x]).strip(" |")
-        out.append(
+        local_samples.append(
             {
                 "gse_id": r[0],
                 "gsm_id": r[1],
-                "sample_title": r[2],
-                "sample_title_norm": norm_text(r[2]),
+                "sample_title": clean_text(r[2]),
+                "sample_title_norm": norm_text(clean_text(r[2])),
                 "condition_text": cond,
             }
         )
+
+    master_rows = [x for x in load_master_mapping_rows() if x["gse_id"] == gse_id]
+
+    merged = {}
+    for s in master_rows:
+        merged[s["gsm_id"]] = dict(s)
+    for s in local_samples:
+        cur = merged.get(s["gsm_id"])
+        if not cur:
+            merged[s["gsm_id"]] = dict(s)
+            continue
+        # local metadata has higher priority; fill only missing master fields
+        if not clean_text(cur.get("sample_title", "")) and clean_text(s.get("sample_title", "")):
+            cur["sample_title"] = clean_text(s["sample_title"])
+            cur["sample_title_norm"] = norm_text(cur["sample_title"])
+        if not clean_text(cur.get("condition_text", "")) and clean_text(s.get("condition_text", "")):
+            cur["condition_text"] = clean_text(s["condition_text"])
+        merged[s["gsm_id"]] = cur
+
+    out = list(merged.values())
+    out.sort(key=lambda x: x.get("gsm_id", ""))
     return out
 
 
@@ -531,19 +845,33 @@ def looks_like_expression_matrix(df: pd.DataFrame) -> bool:
     return (alpha_ratio > 0.8) and (numeric_ratio > 0.6)
 
 
-def map_column_to_sample(col_name: str, gse_samples: list) -> tuple:
+def map_column_to_samples(gse_id: str, col_name: str, gse_samples: list) -> list:
     col_name = str(col_name).strip()
     m = re.search(r"(GSM\d+)", col_name, flags=re.I)
+    sample_by_gsm = {s["gsm_id"]: s for s in gse_samples}
     if m:
         gsm = m.group(1).upper()
-        for s in gse_samples:
-            if s["gsm_id"] == gsm:
-                return gsm, s["sample_title"], s["condition_text"]
-        return gsm, "", ""
+        s = sample_by_gsm.get(gsm)
+        if s:
+            return [(gsm, s["sample_title"], s["condition_text"])]
+        return [(gsm, "", "")]
 
     c_norm = norm_text(col_name)
     if not c_norm:
-        return "", "", ""
+        return []
+
+    # first try precomputed label mapping (handles labels like WT_Log -> multiple GSM replicates)
+    label_map = load_label_mapping_dict()
+    by_label = label_map.get((gse_id.upper(), c_norm), [])
+    if by_label:
+        out = []
+        for gsm in by_label:
+            s = sample_by_gsm.get(gsm)
+            if s:
+                out.append((gsm, s["sample_title"], s["condition_text"]))
+            else:
+                out.append((gsm, "", ""))
+        return out
 
     # exact/contains match on sample title
     for s in gse_samples:
@@ -551,9 +879,41 @@ def map_column_to_sample(col_name: str, gse_samples: list) -> tuple:
         if not t_norm:
             continue
         if c_norm == t_norm or c_norm in t_norm or t_norm in c_norm:
-            return s["gsm_id"], s["sample_title"], s["condition_text"]
+            return [(s["gsm_id"], s["sample_title"], s["condition_text"])]
 
-    return "", col_name, ""
+    # token-based fallback for non-GSM labels
+    label_tokens = expand_tokens(text_tokens(col_name))
+    scored = []
+    ll = col_name.lower().replace("-", "_")
+    for s in gse_samples:
+        st = clean_text(s.get("sample_title", ""))
+        ct = clean_text(s.get("condition_text", ""))
+        st_tokens = expand_tokens(text_tokens(st))
+        ct_tokens = expand_tokens(text_tokens(ct))
+        score = len(label_tokens & st_tokens) + len(label_tokens & ct_tokens)
+
+        stl = st.lower()
+        if "wt" in ll and ("wild type" in stl or "wild-type" in stl):
+            score += 2
+        if "rpd3" in ll and "rpd3" in stl:
+            score += 2
+        if "_log" in ll and "log" in stl:
+            score += 2
+        if "_ds" in ll and ("ds" in stl or "diauxic" in stl):
+            score += 2
+        if ll.endswith("_q") and (" q " in f" {stl} " or "quiescence" in stl):
+            score += 2
+
+        if score > 0:
+            scored.append((score, s))
+
+    if scored:
+        best = max(x[0] for x in scored)
+        top = [s for score, s in scored if score == best]
+        top.sort(key=lambda x: x.get("gsm_id", ""))
+        return [(x["gsm_id"], x["sample_title"], x["condition_text"]) for x in top]
+
+    return []
 
 
 def load_expression_from_global_db(conn: sqlite3.Connection, gse_id: str, gse_samples: list) -> dict:
@@ -561,7 +921,8 @@ def load_expression_from_global_db(conn: sqlite3.Connection, gse_id: str, gse_sa
     if not db_path.exists():
         return {"ok": False, "message": f"global expression db not found: {db_path}"}
 
-    gconn = sqlite3.connect(db_path)
+    # global DB can be large; allow wait time for transient write locks
+    gconn = sqlite3.connect(db_path, timeout=30)
     try:
         exists = gconn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='expression_raw'"
@@ -580,26 +941,24 @@ def load_expression_from_global_db(conn: sqlite3.Connection, gse_id: str, gse_sa
         if not rows:
             return {"ok": False, "message": f"{gse_id} not found in global expression db"}
 
-        sample_map = {}
-        for s in gse_samples:
-            sample_map[s["sample_title"]] = (s["gsm_id"], s["sample_title"], s["condition_text"])
-            sample_map[s["sample_title_norm"]] = (s["gsm_id"], s["sample_title"], s["condition_text"])
-
         inserts = []
         for gse, sample_label, gene, value, source_file in rows:
-            gsm_id, sample_title, condition_text = map_column_to_sample(sample_label, gse_samples)
-            inserts.append(
-                (
-                    gse,
-                    gsm_id,
-                    sample_label,
-                    sample_title,
-                    condition_text,
-                    gene,
-                    float(value),
-                    source_file,
+            matches = map_column_to_samples(gse_id, sample_label, gse_samples)
+            if not matches:
+                matches = [("", "", "")]
+            for gsm_id, sample_title, condition_text in matches:
+                inserts.append(
+                    (
+                        gse,
+                        gsm_id,
+                        sample_label,
+                        sample_title,
+                        condition_text,
+                        gene,
+                        float(value),
+                        source_file,
+                    )
                 )
-            )
 
         conn.executemany(
             """
@@ -688,24 +1047,27 @@ def ensure_expression_loaded(conn: sqlite3.Connection, gse_id: str) -> dict:
 
             rows_to_insert = []
             for c in value_cols:
-                gsm_id, sample_title, condition_text = map_column_to_sample(str(c), gse_samples)
+                matches = map_column_to_samples(gse_id, str(c), gse_samples)
+                if not matches:
+                    matches = [("", "", "")]
                 vals = pd.to_numeric(sub[c], errors="coerce")
                 genes = sub[gene_col]
                 for gene, val in zip(genes, vals):
                     if pd.isna(val):
                         continue
-                    rows_to_insert.append(
-                        (
-                            gse_id,
-                            gsm_id,
-                            fix_mojibake(str(c)),
-                            sample_title,
-                            condition_text,
-                            fix_mojibake(str(gene)),
-                            float(val),
-                            str(f),
+                    for gsm_id, sample_title, condition_text in matches:
+                        rows_to_insert.append(
+                            (
+                                gse_id,
+                                gsm_id,
+                                fix_mojibake(str(c)),
+                                sample_title,
+                                condition_text,
+                                fix_mojibake(str(gene)),
+                                float(val),
+                                str(f),
+                            )
                         )
-                    )
 
             if rows_to_insert:
                 conn.executemany(
@@ -795,8 +1157,8 @@ def search_expression(conn: sqlite3.Connection, params: dict) -> list:
 
 # ---------- stats ----------
 def get_stats(conn: sqlite3.Connection) -> dict:
-    n_samples = conn.execute("SELECT COUNT(*) FROM samples").fetchone()[0]
-    n_gse = conn.execute("SELECT COUNT(DISTINCT gse_id) FROM samples WHERE gse_id <> ''").fetchone()[0]
+    n_samples = conn.execute("SELECT COUNT(*) FROM mapping_samples").fetchone()[0]
+    n_gse = conn.execute("SELECT COUNT(DISTINCT gse_id) FROM mapping_samples WHERE gse_id <> ''").fetchone()[0]
     n_features = conn.execute("SELECT COUNT(*) FROM sample_features").fetchone()[0]
     n_expr = conn.execute("SELECT COUNT(*) FROM expression_values").fetchone()[0]
     return {

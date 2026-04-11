@@ -9,11 +9,32 @@ import app
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "geo_samples.db"
+SOURCE_INDEX_PATH = BASE_DIR.parent / "SS_Bulk" / "gse_table_source_index.csv"
 
 
 @st.cache_resource(show_spinner=False)
 def get_conn() -> sqlite3.Connection:
     return sqlite3.connect(DB_PATH, check_same_thread=False)
+
+
+@st.cache_data(show_spinner=False)
+def load_source_index() -> pd.DataFrame:
+    if not SOURCE_INDEX_PATH.exists():
+        return pd.DataFrame(columns=["gse_id", "table_source", "chosen_table_file", "final_status"])
+    try:
+        df = pd.read_csv(SOURCE_INDEX_PATH)
+    except Exception:
+        return pd.DataFrame(columns=["gse_id", "table_source", "chosen_table_file", "final_status"])
+    if "gse_id" not in df.columns:
+        return pd.DataFrame(columns=["gse_id", "table_source", "chosen_table_file", "final_status"])
+    df["gse_id"] = df["gse_id"].astype(str).str.upper().str.strip()
+    if "table_source" not in df.columns:
+        df["table_source"] = "NONE"
+    if "chosen_table_file" not in df.columns:
+        df["chosen_table_file"] = ""
+    if "final_status" not in df.columns:
+        df["final_status"] = ""
+    return df
 
 
 def ensure_database() -> None:
@@ -22,7 +43,18 @@ def ensure_database() -> None:
         st.error(f"CSV not found: {csv_path}")
         st.stop()
 
-    needs_rebuild = (not DB_PATH.exists()) or (DB_PATH.stat().st_mtime < csv_path.stat().st_mtime)
+    dep_paths = [
+        csv_path,
+        app.resolve_master_mapping_csv(),
+        app.resolve_label_mapping_csv(),
+        app.resolve_mapping_summary_csv(),
+    ]
+    newest_dep_mtime = 0.0
+    for p in dep_paths:
+        if p.exists():
+            newest_dep_mtime = max(newest_dep_mtime, p.stat().st_mtime)
+
+    needs_rebuild = (not DB_PATH.exists()) or (DB_PATH.stat().st_mtime < newest_dep_mtime)
     if needs_rebuild:
         app.import_csv_to_db(csv_path, DB_PATH)
 
@@ -35,6 +67,12 @@ def run() -> None:
     ensure_database()
     conn = get_conn()
     stats = app.get_stats(conn)
+    source_df = load_source_index()
+    source_map = {}
+    chosen_map = {}
+    if not source_df.empty:
+        source_map = dict(zip(source_df["gse_id"], source_df["table_source"]))
+        chosen_map = dict(zip(source_df["gse_id"], source_df["chosen_table_file"]))
 
     c1, c2, c3 = st.columns(3)
     c1.metric("样本数", stats["samples"])
@@ -47,6 +85,7 @@ def run() -> None:
         gsm = st.text_input("GSM", placeholder="GSM7976778").strip().upper()
         sample = st.text_input("样本名", placeholder="AR13_1 或 DMM00002").strip()
         condition = st.text_input("条件关键词", placeholder="CAD / NaCl / heat shock").strip()
+        source_filter = st.selectbox("来源", options=["ALL", "MANUAL", "AUTO", "NONE"], index=0)
         do_search = st.button("查询", type="primary")
 
     if not gse:
@@ -60,8 +99,14 @@ def run() -> None:
         overview_rows = app.search_samples(conn, overview_params)
         if overview_rows:
             odf = pd.DataFrame(overview_rows)
+            odf["table_source"] = odf["gse_id"].map(source_map).fillna("NONE")
+            if source_filter != "ALL":
+                odf = odf[odf["table_source"] == source_filter]
+            odf = odf.copy()
             show_cols = [
                 "gse_id",
+                "table_source",
+                "mapping_status",
                 "gsm_id",
                 "sample_title",
                 "treatment",
@@ -76,6 +121,17 @@ def run() -> None:
         return
 
     st.subheader(f"{gse} 基本情况表")
+    gse_source = source_map.get(gse, "NONE")
+    chosen_file = chosen_map.get(gse, "")
+    gse_map_status = app.get_gse_mapping_status(conn, gse)
+    st.caption(f"来源: `{gse_source}`")
+    st.caption(
+        f"映射状态: `{gse_map_status.get('mapping_status','UNKNOWN')}` "
+        f"(mapped={gse_map_status.get('mapped_any', 0)}, unmatched={gse_map_status.get('unmatched', 0)})"
+    )
+    if chosen_file:
+        st.caption(f"优先表: `{chosen_file}`")
+
     gse_rows = app.get_gse_basic_table(conn, gse)
     if gse_rows:
         gse_df = pd.DataFrame(gse_rows)
@@ -120,11 +176,13 @@ def run() -> None:
 
     if gsm:
         sample_name = ""
+        sample_condition = ""
         for x in gse_rows:
             if x["gsm_id"] == gsm:
                 sample_name = x["sample_name"]
+                sample_condition = x["condition"]
                 break
-        st.subheader(f"{gsm}+{sample_name}(样本名) Gene-Value 表")
+        st.subheader(f"{gsm}|{sample_name}|{sample_condition}  Gene-Value 表")
     else:
         st.subheader(f"Gene-Value 结果 ({len(rows)})")
 

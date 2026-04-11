@@ -1,0 +1,46 @@
+gse_id,gsm_id,sample_title,condition_text,mapping_source,sample_title_local,condition_local,sample_title_geo,condition_geo
+GSE110818,GSM3017184,GAL-REG (WT)-1,wt,GEO_FETCH,,,GAL-REG (WT)-1,wt
+GSE110818,GSM3017185,GAL-REG (WT)-2,wt,GEO_FETCH,,,GAL-REG (WT)-2,wt
+GSE110818,GSM3017186,GAL-REG (WT)-3,wt,GEO_FETCH,,,GAL-REG (WT)-3,wt
+GSE110818,GSM3017187,GAL-CONS-1,,GEO_FETCH,,,GAL-CONS-1,
+GSE110818,GSM3017188,GAL-CONS-2,,GEO_FETCH,,,GAL-CONS-2,
+GSE110818,GSM3017189,GAL-CONS-3,,GEO_FETCH,,,GAL-CONS-3,
+GSE110818,GSM3017190,XYL-REG-1,,GEO_FETCH,,,XYL-REG-1,
+GSE110818,GSM3017191,XYL-REG-2,,GEO_FETCH,,,XYL-REG-2,
+GSE110818,GSM3017192,XYL-REG-3,,GEO_FETCH,,,XYL-REG-3,
+GSE110818,GSM3017193,XYL-CONS-1,,GEO_FETCH,,,XYL-CONS-1,
+GSE110818,GSM3017194,XYL-CONS-2,,GEO_FETCH,,,XYL-CONS-2,
+GSE110818,GSM3017195,XYL-CONS-3,,GEO_FETCH,,,XYL-CONS-3,
+GSE237235,GSM7597583,AR13_1,36h | Pcf11-AARR mutating,LOCAL_META,AR13_1,36h | Pcf11-AARR mutating,AR13_1,
+GSE237235,GSM7597584,AR13_2,36h | Pcf11-AARR mutating,LOCAL_META,AR13_2,36h | Pcf11-AARR mutating,AR13_2,
+GSE237235,GSM7597585,AR13_3,36h | Pcf11-AARR mutating,LOCAL_META,AR13_3,36h | Pcf11-AARR mutating,AR13_3,
+GSE237235,GSM7597586,L17_1,36h | deltaPcf11 deleting,LOCAL_META,L17_1,36h | deltaPcf11 deleting,L17_1,
+GSE237235,GSM7597587,L17_2,36h | deltaPcf11 deleting,LOCAL_META,L17_2,36h | deltaPcf11 deleting,L17_2,
+GSE237235,GSM7597588,L17_3,36h | deltaPcf11 deleting,LOCAL_META,L17_3,36h | deltaPcf11 deleting,L17_3,
+GSE237235,GSM7597589,Pcf11_IP_1,"36h | IP1,replication1",LOCAL_META,Pcf11_IP_1,"36h | IP1,replication1",Pcf11_IP_1,
+GSE237235,GSM7597590,Pcf11_IP_2,"36h | IP2,replication1",LOCAL_META,Pcf11_IP_2,"36h | IP2,replication1",Pcf11_IP_2,
+GSE237235,GSM7597591,Pcf11_input_1,"36h | WT,replication1",LOCAL_META,Pcf11_input_1,"36h | WT,replication1",Pcf11_input_1,
+GSE237235,GSM7597592,Pcf11_input_2,"36h | WT,replication2",LOCAL_META,Pcf11_input_2,"36h | WT,replication2",Pcf11_input_2,
+GSE237235,GSM7597593,SC_1,36h | WT,LOCAL_META,SC_1,36h | WT,SC_1,
+GSE237235,GSM7597594,SC_2,36h | WT,LOCAL_META,SC_2,36h | WT,SC_2,
+GSE237235,GSM7597595,SC_3,36h | WT,LOCAL_META,SC_3,36h | WT,SC_3,
+GSE237235,GSM7665856,Gsy_1,36h | Pcf11-OE1 overexpressing,LOCAL_META,Gsy_1,36h | Pcf11-OE1 overexpressing,Gsy_1,
+GSE237235,GSM7665857,Gsy_2,36h | Pcf11-OE1 overexpressing,LOCAL_META,Gsy_2,36h | Pcf11-OE1 overexpressing,Gsy_2,
+GSE237235,GSM7665858,Gsy_3,36h | Pcf11-OE1 overexpressing,LOCAL_META,Gsy_3,36h | Pcf11-OE1 overexpressing,Gsy_3,
+GSE237235,GSM7665859,Gwl_1,36h | Pcf11-OE2 overexpressing,LOCAL_META,Gwl_1,36h | Pcf11-OE2 overexpressing,Gwl_1,
+GSE237235,GSM7665860,Gwl_2,36h | Pcf11-OE2 overexpressing,LOCAL_META,Gwl_2,36h | Pcf11-OE2 overexpressing,Gwl_2,
+GSE237235,GSM7665861,Gwl_3,36h | Pcf11-OE2 overexpressing,LOCAL_META,Gwl_3,36h | Pcf11-OE2 overexpressing,Gwl_3,
+GSE67149,GSM1640257,RNA-Seq of wild type log cells-1a,log,GEO_FETCH,,,RNA-Seq of wild type log cells-1a,log
+GSE67149,GSM1640258,RNA-Seq of wild type log cells-2a,log,GEO_FETCH,,,RNA-Seq of wild type log cells-2a,log
+GSE67149,GSM1640259,RNA-Seq of wild type log cells-1b,log,GEO_FETCH,,,RNA-Seq of wild type log cells-1b,log
+GSE67149,GSM1640260,RNA-Seq of wild type log cells-2b,log,GEO_FETCH,,,RNA-Seq of wild type log cells-2b,log
+GSE67149,GSM1640261,RNA-Seq of wild type Q cells-1,q cells,GEO_FETCH,,,RNA-Seq of wild type Q cells-1,q cells
+GSE67149,GSM1640262,RNA-Seq of wild type Q cells-2,q cells,GEO_FETCH,,,RNA-Seq of wild type Q cells-2,q cells
+GSE67149,GSM1640263,RNA-Seq of wild type DS cells-1,ds,GEO_FETCH,,,RNA-Seq of wild type DS cells-1,ds
+GSE67149,GSM1640264,RNA-Seq of wild type DS cells-2,ds,GEO_FETCH,,,RNA-Seq of wild type DS cells-2,ds
+GSE67149,GSM1640265,RNA-Seq of rpd3 log cells-1,log,GEO_FETCH,,,RNA-Seq of rpd3 log cells-1,log
+GSE67149,GSM1640266,RNA-Seq of rpd3 log cells-2,log,GEO_FETCH,,,RNA-Seq of rpd3 log cells-2,log
+GSE67149,GSM1640267,RNA-Seq of rpd3 DS cells-1,ds,GEO_FETCH,,,RNA-Seq of rpd3 DS cells-1,ds
+GSE67149,GSM1640268,RNA-Seq of rpd3 DS cells-2,ds,GEO_FETCH,,,RNA-Seq of rpd3 DS cells-2,ds
+GSE67149,GSM1640269,RNA-Seq of rpd3 Q cells-1,q cells,GEO_FETCH,,,RNA-Seq of rpd3 Q cells-1,q cells
+GSE67149,GSM1640270,RNA-Seq of rpd3 Q cells-2,q cells,GEO_FETCH,,,RNA-Seq of rpd3 Q cells-2,q cells

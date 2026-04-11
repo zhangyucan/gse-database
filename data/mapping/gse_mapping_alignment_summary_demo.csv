@@ -1,0 +1,4 @@
+gse_id,label_count,sample_like_count,by_gsm,by_whitelist,by_heuristic,ignored_meta,unmatched,gsm_not_in_mapping,mapped_any,mapping_status
+GSE110818,12,12,12,0,0,0,0,0,12,FULL
+GSE237235,135,54,0,0,54,81,0,0,54,FULL
+GSE67149,12,12,0,0,12,0,0,0,12,FULL
